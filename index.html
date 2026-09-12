@@ -40,7 +40,7 @@
       border-radius: 12px;
       padding: 12px 16px;
       font-size: 15px;
-      background: rgba(0,0,0,0.78);
+      background: rgba(0, 0, 0, 0.78);
       color: white;
     }
 
@@ -50,7 +50,7 @@
       top: 15px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0,0,0,0.65);
+      background: rgba(0, 0, 0, 0.65);
       color: white;
       padding: 8px 12px;
       border-radius: 10px;
@@ -59,7 +59,14 @@
   </style>
 
   <script>
-    AFRAME.registerComponent('heart-clipper', {
+    AFRAME.registerComponent('phone-clipper', {
+
+      schema: {
+        distance: {
+          type: 'number',
+          default: 0.20
+        }
+      },
 
       init: function () {
 
@@ -72,7 +79,9 @@
         this.worldCenter = new THREE.Vector3();
 
         this.cameraPosition = new THREE.Vector3();
-        this.normal = new THREE.Vector3();
+        this.directionToHeart = new THREE.Vector3();
+        this.planePoint = new THREE.Vector3();
+        this.planeNormal = new THREE.Vector3();
 
         this.modelEl = document.querySelector('#heart');
 
@@ -88,21 +97,23 @@
           this.modelObject =
             this.modelEl.getObject3D('mesh');
 
-          /*
-            Find the TRUE centre of the actual GLB geometry.
-          */
-
           this.modelObject.updateMatrixWorld(true);
 
-          const box = new THREE.Box3()
-            .setFromObject(this.modelObject);
+          /*
+            Find true centre of actual GLB geometry
+          */
+
+          const box =
+            new THREE.Box3()
+              .setFromObject(this.modelObject);
 
           const centerWorld =
-            box.getCenter(new THREE.Vector3());
+            box.getCenter(
+              new THREE.Vector3()
+            );
 
           /*
-            Store centre in model-local coordinates,
-            so it continues following the AR target.
+            Store centre in model-local coordinates
           */
 
           this.localCenter =
@@ -112,7 +123,7 @@
 
 
           /*
-            Attach clipping plane to every material.
+            Prepare clipping on every material
           */
 
           this.modelObject.traverse((node) => {
@@ -134,9 +145,8 @@
 
           });
 
-
           document.querySelector('#status').innerText =
-            'Model ready';
+            'Model ready • Slice distance 20 cm';
 
         });
 
@@ -163,10 +173,34 @@
 
         };
 
+
+        window.nearerPlane = () => {
+
+          this.data.distance -= 0.02;
+
+          if (this.data.distance < 0.02) {
+            this.data.distance = 0.02;
+          }
+
+          this.updateStatus();
+
+        };
+
+
+        window.fartherPlane = () => {
+
+          this.data.distance += 0.02;
+
+          this.updateStatus();
+
+        };
+
       },
 
 
       updateMaterials: function () {
+
+        if (!this.modelObject) return;
 
         this.modelObject.traverse((node) => {
 
@@ -193,6 +227,16 @@
       },
 
 
+      updateStatus: function () {
+
+        document.querySelector('#status').innerText =
+          'Slice distance: ' +
+          Math.round(this.data.distance * 100) +
+          ' cm';
+
+      },
+
+
       tick: function () {
 
         if (!this.enabled ||
@@ -200,7 +244,7 @@
 
 
         /*
-          TRUE model centre in current AR world space.
+          Get true heart centre in current AR world coordinates
         */
 
         this.modelObject.updateMatrixWorld(true);
@@ -213,7 +257,7 @@
 
 
         /*
-          Get camera position.
+          Get camera world position
         */
 
         this.el.object3D.getWorldPosition(
@@ -222,29 +266,50 @@
 
 
         /*
-          Normal points from camera toward heart.
-          This is more reliable in MindAR than assuming
-          camera -Z is always correct.
+          Direction from phone/camera toward heart
         */
 
-        this.normal
+        this.directionToHeart
           .subVectors(
             this.worldCenter,
             this.cameraPosition
           )
-          .normalize()
+          .normalize();
+
+
+        /*
+          Put clipping plane a fixed distance
+          in front of camera
+        */
+
+        this.planePoint
+          .copy(this.cameraPosition)
+          .add(
+            this.directionToHeart
+              .clone()
+              .multiplyScalar(
+                this.data.distance
+              )
+          );
+
+
+        /*
+          Plane normal
+        */
+
+        this.planeNormal
+          .copy(this.directionToHeart)
           .multiplyScalar(this.flip);
 
 
         /*
-          Plane passes EXACTLY through
-          the real centre of the heart.
+          Update clipping plane every frame
         */
 
         this.clipPlane
           .setFromNormalAndCoplanarPoint(
-            this.normal,
-            this.worldCenter
+            this.planeNormal,
+            this.planePoint
           );
 
       }
@@ -271,6 +336,16 @@
     <button
       onclick="flipSlice()">
       Flip
+    </button>
+
+    <button
+      onclick="nearerPlane()">
+      −
+    </button>
+
+    <button
+      onclick="fartherPlane()">
+      +
     </button>
 
   </div>
@@ -313,7 +388,7 @@
 
     <a-camera
       id="camera"
-      heart-clipper
+      phone-clipper="distance: 0.20"
       position="0 0 0"
       look-controls="enabled: false">
     </a-camera>
@@ -324,17 +399,11 @@
 
 
       <a-gltf-model
-
         id="heart"
-
         src="#heartModel"
-
         position="0 0 0.1"
-
         rotation="0 0 0"
-
         scale="0.015 0.015 0.015">
-
       </a-gltf-model>
 
 
