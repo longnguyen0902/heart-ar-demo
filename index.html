@@ -17,16 +17,264 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
+      font-family: Arial, sans-serif;
     }
 
     a-scene {
       width: 100%;
       height: 100%;
     }
+
+    #controls {
+      position: fixed;
+      z-index: 9999;
+      bottom: 25px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 15px;
+      background: rgba(0,0,0,0.75);
+      color: white;
+    }
+
+    #status {
+      position: fixed;
+      z-index: 9999;
+      top: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.6);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 13px;
+    }
   </style>
+
+  <script>
+    AFRAME.registerComponent('camera-clipper', {
+
+      schema: {
+        offset: {
+          type: 'number',
+          default: 0.20
+        }
+      },
+
+      init: function () {
+
+        const scene = this.el.sceneEl;
+
+        this.clipPlane = new THREE.Plane();
+
+        this.enabled = false;
+        this.flip = 1;
+
+        this.cameraPosition = new THREE.Vector3();
+        this.cameraDirection = new THREE.Vector3();
+        this.planePosition = new THREE.Vector3();
+
+        scene.renderer.localClippingEnabled = true;
+
+        const model = document.querySelector('#heart');
+
+        model.addEventListener('model-loaded', () => {
+
+          const object = model.getObject3D('mesh');
+
+          object.traverse((node) => {
+
+            if (!node.isMesh) return;
+
+            const materials =
+              Array.isArray(node.material)
+                ? node.material
+                : [node.material];
+
+            materials.forEach((material) => {
+
+              material.clippingPlanes = [];
+
+              material.clipShadows = true;
+
+              material.needsUpdate = true;
+
+            });
+
+          });
+
+          this.modelObject = object;
+
+        });
+
+
+        window.toggleSlice = () => {
+
+          this.enabled = !this.enabled;
+
+          document.querySelector('#sliceButton').innerText =
+            this.enabled
+              ? 'Slice ON'
+              : 'Slice OFF';
+
+          this.updateMaterials();
+
+        };
+
+
+        window.flipSlice = () => {
+
+          this.flip *= -1;
+
+        };
+
+
+        window.movePlaneNearer = () => {
+
+          this.data.offset -= 0.05;
+
+          if (this.data.offset < 0.05) {
+            this.data.offset = 0.05;
+          }
+
+          this.updateStatus();
+
+        };
+
+
+        window.movePlaneFarther = () => {
+
+          this.data.offset += 0.05;
+
+          this.updateStatus();
+
+        };
+
+      },
+
+
+      updateMaterials: function () {
+
+        if (!this.modelObject) return;
+
+        this.modelObject.traverse((node) => {
+
+          if (!node.isMesh) return;
+
+          const materials =
+            Array.isArray(node.material)
+              ? node.material
+              : [node.material];
+
+          materials.forEach((material) => {
+
+            material.clippingPlanes =
+              this.enabled
+                ? [this.clipPlane]
+                : [];
+
+            material.needsUpdate = true;
+
+          });
+
+        });
+
+      },
+
+
+      updateStatus: function () {
+
+        const label = document.querySelector('#status');
+
+        label.innerText =
+          'Cut distance: ' +
+          this.data.offset.toFixed(2) +
+          ' m';
+
+      },
+
+
+      tick: function () {
+
+        if (!this.enabled) return;
+
+        const camera = this.el.object3D;
+
+        camera.getWorldPosition(
+          this.cameraPosition
+        );
+
+        camera.getWorldDirection(
+          this.cameraDirection
+        );
+
+        this.cameraDirection
+          .normalize()
+          .multiplyScalar(this.flip);
+
+        this.planePosition
+          .copy(this.cameraPosition)
+          .add(
+            camera
+              .getWorldDirection(
+                new THREE.Vector3()
+              )
+              .normalize()
+              .multiplyScalar(
+                this.data.offset
+              )
+          );
+
+        this.clipPlane
+          .setFromNormalAndCoplanarPoint(
+            this.cameraDirection,
+            this.planePosition
+          );
+
+      }
+
+    });
+  </script>
+
 </head>
 
 <body>
+
+  <div id="status">
+    Cut distance: 0.20 m
+  </div>
+
+  <div id="controls">
+
+    <button
+      id="sliceButton"
+      onclick="toggleSlice()">
+      Slice OFF
+    </button>
+
+    <button
+      onclick="flipSlice()">
+      Flip
+    </button>
+
+    <button
+      onclick="movePlaneNearer()">
+      −
+    </button>
+
+    <button
+      onclick="movePlaneFarther()">
+      +
+    </button>
+
+  </div>
 
   <a-scene
     mindar-image="
@@ -36,31 +284,46 @@
       uiScanning: yes;
       uiError: yes;
     "
+
     color-space="sRGB"
-    renderer="colorManagement: true; physicallyCorrectLights: true"
+
+    renderer="
+      colorManagement: true;
+      physicallyCorrectLights: true;
+    "
+
     vr-mode-ui="enabled: false"
+
     device-orientation-permission-ui="enabled: false"
+
     embedded
   >
 
     <a-assets>
-      <a-asset-item id="heartModel" src="./heart.glb"></a-asset-item>
+
+      <a-asset-item
+        id="heartModel"
+        src="./heart.glb">
+      </a-asset-item>
+
     </a-assets>
 
     <a-camera
+      id="camera"
+      camera-clipper="offset: 0.20"
       position="0 0 0"
-      look-controls="enabled: false"
-    >
+      look-controls="enabled: false">
     </a-camera>
 
-    <a-entity mindar-image-target="targetIndex: 0">
+    <a-entity
+      mindar-image-target="targetIndex: 0">
 
       <a-gltf-model
+        id="heart"
         src="#heartModel"
         position="0 0 0.1"
         rotation="0 0 0"
-        scale="0.005 0.005 0.005"
-      >
+        scale="0.015 0.015 0.015">
       </a-gltf-model>
 
     </a-entity>
