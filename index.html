@@ -40,7 +40,7 @@
       border-radius: 12px;
       padding: 12px 16px;
       font-size: 15px;
-      background: rgba(0,0,0,0.75);
+      background: rgba(0,0,0,0.78);
       color: white;
     }
 
@@ -50,7 +50,7 @@
       top: 15px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0,0,0,0.6);
+      background: rgba(0,0,0,0.65);
       color: white;
       padding: 8px 12px;
       border-radius: 10px;
@@ -59,34 +59,61 @@
   </style>
 
   <script>
-    AFRAME.registerComponent('camera-clipper', {
-
-      schema: {
-        offset: {
-          type: 'number',
-          default: 0
-        }
-      },
+    AFRAME.registerComponent('heart-clipper', {
 
       init: function () {
-
-        this.clipPlane = new THREE.Plane();
 
         this.enabled = false;
         this.flip = 1;
 
-        this.cameraDirection = new THREE.Vector3();
-        this.modelCenter = new THREE.Vector3();
-        this.planePoint = new THREE.Vector3();
+        this.clipPlane = new THREE.Plane();
 
-        const scene = this.el.sceneEl;
-        scene.renderer.localClippingEnabled = true;
+        this.localCenter = new THREE.Vector3();
+        this.worldCenter = new THREE.Vector3();
+
+        this.cameraPosition = new THREE.Vector3();
+        this.normal = new THREE.Vector3();
 
         this.modelEl = document.querySelector('#heart');
 
+        const scene = this.el.sceneEl;
+
+        scene.addEventListener('renderstart', () => {
+          scene.renderer.localClippingEnabled = true;
+        });
+
+
         this.modelEl.addEventListener('model-loaded', () => {
 
-          this.modelObject = this.modelEl.getObject3D('mesh');
+          this.modelObject =
+            this.modelEl.getObject3D('mesh');
+
+          /*
+            Find the TRUE centre of the actual GLB geometry.
+          */
+
+          this.modelObject.updateMatrixWorld(true);
+
+          const box = new THREE.Box3()
+            .setFromObject(this.modelObject);
+
+          const centerWorld =
+            box.getCenter(new THREE.Vector3());
+
+          /*
+            Store centre in model-local coordinates,
+            so it continues following the AR target.
+          */
+
+          this.localCenter =
+            this.modelObject.worldToLocal(
+              centerWorld.clone()
+            );
+
+
+          /*
+            Attach clipping plane to every material.
+          */
 
           this.modelObject.traverse((node) => {
 
@@ -100,27 +127,35 @@
             materials.forEach((material) => {
 
               material.clippingPlanes = [];
-
               material.clipShadows = true;
-
               material.needsUpdate = true;
 
             });
 
           });
 
+
+          document.querySelector('#status').innerText =
+            'Model ready';
+
         });
 
+
         window.toggleSlice = () => {
+
+          if (!this.modelObject) return;
 
           this.enabled = !this.enabled;
 
           document.querySelector('#sliceButton').innerText =
-            this.enabled ? 'Slice ON' : 'Slice OFF';
+            this.enabled
+              ? 'Slice ON'
+              : 'Slice OFF';
 
           this.updateMaterials();
 
         };
+
 
         window.flipSlice = () => {
 
@@ -128,25 +163,10 @@
 
         };
 
-        window.movePlaneNearer = () => {
-
-          this.data.offset -= 0.02;
-          this.updateStatus();
-
-        };
-
-        window.movePlaneFarther = () => {
-
-          this.data.offset += 0.02;
-          this.updateStatus();
-
-        };
-
       },
 
-      updateMaterials: function () {
 
-        if (!this.modelObject) return;
+      updateMaterials: function () {
 
         this.modelObject.traverse((node) => {
 
@@ -172,40 +192,60 @@
 
       },
 
-      updateStatus: function () {
-
-        document.querySelector('#status').innerText =
-          'Slice offset: ' +
-          this.data.offset.toFixed(2);
-
-      },
 
       tick: function () {
 
-        if (!this.enabled || !this.modelObject) return;
+        if (!this.enabled ||
+            !this.modelObject) return;
 
-        const camera = this.el.object3D;
 
-        camera.getWorldDirection(this.cameraDirection);
+        /*
+          TRUE model centre in current AR world space.
+        */
 
-        this.cameraDirection
+        this.modelObject.updateMatrixWorld(true);
+
+        this.worldCenter
+          .copy(this.localCenter);
+
+        this.modelObject
+          .localToWorld(this.worldCenter);
+
+
+        /*
+          Get camera position.
+        */
+
+        this.el.object3D.getWorldPosition(
+          this.cameraPosition
+        );
+
+
+        /*
+          Normal points from camera toward heart.
+          This is more reliable in MindAR than assuming
+          camera -Z is always correct.
+        */
+
+        this.normal
+          .subVectors(
+            this.worldCenter,
+            this.cameraPosition
+          )
           .normalize()
           .multiplyScalar(this.flip);
 
-        this.modelEl.object3D.getWorldPosition(this.modelCenter);
 
-        this.planePoint
-          .copy(this.modelCenter)
-          .add(
-            this.cameraDirection
-              .clone()
-              .multiplyScalar(this.data.offset)
+        /*
+          Plane passes EXACTLY through
+          the real centre of the heart.
+        */
+
+        this.clipPlane
+          .setFromNormalAndCoplanarPoint(
+            this.normal,
+            this.worldCenter
           );
-
-        this.clipPlane.setFromNormalAndCoplanarPoint(
-          this.cameraDirection,
-          this.planePoint
-        );
 
       }
 
@@ -217,7 +257,7 @@
 <body>
 
   <div id="status">
-    Slice offset: 0.00
+    Loading model...
   </div>
 
   <div id="controls">
@@ -228,21 +268,16 @@
       Slice OFF
     </button>
 
-    <button onclick="flipSlice()">
+    <button
+      onclick="flipSlice()">
       Flip
-    </button>
-
-    <button onclick="movePlaneNearer()">
-      −
-    </button>
-
-    <button onclick="movePlaneFarther()">
-      +
     </button>
 
   </div>
 
+
   <a-scene
+
     mindar-image="
       imageTargetSrc: ./targets.mind;
       autoStart: true;
@@ -259,35 +294,52 @@
     "
 
     vr-mode-ui="enabled: false"
+
     device-orientation-permission-ui="enabled: false"
+
     embedded
   >
 
+
     <a-assets>
+
       <a-asset-item
         id="heartModel"
         src="./heart.glb">
       </a-asset-item>
+
     </a-assets>
+
 
     <a-camera
       id="camera"
-      camera-clipper="offset: 0"
+      heart-clipper
       position="0 0 0"
       look-controls="enabled: false">
     </a-camera>
 
-    <a-entity mindar-image-target="targetIndex: 0">
+
+    <a-entity
+      mindar-image-target="targetIndex: 0">
+
 
       <a-gltf-model
+
         id="heart"
+
         src="#heartModel"
+
         position="0 0 0.1"
+
         rotation="0 0 0"
+
         scale="0.015 0.015 0.015">
+
       </a-gltf-model>
 
+
     </a-entity>
+
 
   </a-scene>
 
