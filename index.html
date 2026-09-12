@@ -143,14 +143,15 @@
                     ? node.material
                     : [node.material];
 
-                materials.forEach(
-                  (material) => {
+                materials.forEach((material) => {
 
-                    material.clippingPlanes = [];
+  material.clippingPlanes = [];
 
-                    material.clipShadows = true;
+  material.clipShadows = true;
 
-                    material.needsUpdate = true;
+  material.side = THREE.DoubleSide;
+
+  material.needsUpdate = true;
 
                   }
                 );
