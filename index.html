@@ -64,32 +64,31 @@
       schema: {
         offset: {
           type: 'number',
-          default: 0.20
+          default: 0
         }
       },
 
       init: function () {
-
-        const scene = this.el.sceneEl;
 
         this.clipPlane = new THREE.Plane();
 
         this.enabled = false;
         this.flip = 1;
 
-        this.cameraPosition = new THREE.Vector3();
         this.cameraDirection = new THREE.Vector3();
-        this.planePosition = new THREE.Vector3();
+        this.modelCenter = new THREE.Vector3();
+        this.planePoint = new THREE.Vector3();
 
+        const scene = this.el.sceneEl;
         scene.renderer.localClippingEnabled = true;
 
-        const model = document.querySelector('#heart');
+        this.modelEl = document.querySelector('#heart');
 
-        model.addEventListener('model-loaded', () => {
+        this.modelEl.addEventListener('model-loaded', () => {
 
-          const object = model.getObject3D('mesh');
+          this.modelObject = this.modelEl.getObject3D('mesh');
 
-          object.traverse((node) => {
+          this.modelObject.traverse((node) => {
 
             if (!node.isMesh) return;
 
@@ -110,24 +109,18 @@
 
           });
 
-          this.modelObject = object;
-
         });
-
 
         window.toggleSlice = () => {
 
           this.enabled = !this.enabled;
 
           document.querySelector('#sliceButton').innerText =
-            this.enabled
-              ? 'Slice ON'
-              : 'Slice OFF';
+            this.enabled ? 'Slice ON' : 'Slice OFF';
 
           this.updateMaterials();
 
         };
-
 
         window.flipSlice = () => {
 
@@ -135,30 +128,21 @@
 
         };
 
-
         window.movePlaneNearer = () => {
 
-          this.data.offset -= 0.05;
-
-          if (this.data.offset < 0.05) {
-            this.data.offset = 0.05;
-          }
-
+          this.data.offset -= 0.02;
           this.updateStatus();
 
         };
 
-
         window.movePlaneFarther = () => {
 
-          this.data.offset += 0.05;
-
+          this.data.offset += 0.02;
           this.updateStatus();
 
         };
 
       },
-
 
       updateMaterials: function () {
 
@@ -188,55 +172,40 @@
 
       },
 
-
       updateStatus: function () {
 
-        const label = document.querySelector('#status');
-
-        label.innerText =
-          'Cut distance: ' +
-          this.data.offset.toFixed(2) +
-          ' m';
+        document.querySelector('#status').innerText =
+          'Slice offset: ' +
+          this.data.offset.toFixed(2);
 
       },
 
-
       tick: function () {
 
-        if (!this.enabled) return;
+        if (!this.enabled || !this.modelObject) return;
 
         const camera = this.el.object3D;
 
-        camera.getWorldPosition(
-          this.cameraPosition
-        );
-
-        camera.getWorldDirection(
-          this.cameraDirection
-        );
+        camera.getWorldDirection(this.cameraDirection);
 
         this.cameraDirection
           .normalize()
           .multiplyScalar(this.flip);
 
-        this.planePosition
-          .copy(this.cameraPosition)
+        this.modelEl.object3D.getWorldPosition(this.modelCenter);
+
+        this.planePoint
+          .copy(this.modelCenter)
           .add(
-            camera
-              .getWorldDirection(
-                new THREE.Vector3()
-              )
-              .normalize()
-              .multiplyScalar(
-                this.data.offset
-              )
+            this.cameraDirection
+              .clone()
+              .multiplyScalar(this.data.offset)
           );
 
-        this.clipPlane
-          .setFromNormalAndCoplanarPoint(
-            this.cameraDirection,
-            this.planePosition
-          );
+        this.clipPlane.setFromNormalAndCoplanarPoint(
+          this.cameraDirection,
+          this.planePoint
+        );
 
       }
 
@@ -248,7 +217,7 @@
 <body>
 
   <div id="status">
-    Cut distance: 0.20 m
+    Slice offset: 0.00
   </div>
 
   <div id="controls">
@@ -259,18 +228,15 @@
       Slice OFF
     </button>
 
-    <button
-      onclick="flipSlice()">
+    <button onclick="flipSlice()">
       Flip
     </button>
 
-    <button
-      onclick="movePlaneNearer()">
+    <button onclick="movePlaneNearer()">
       −
     </button>
 
-    <button
-      onclick="movePlaneFarther()">
+    <button onclick="movePlaneFarther()">
       +
     </button>
 
@@ -293,30 +259,25 @@
     "
 
     vr-mode-ui="enabled: false"
-
     device-orientation-permission-ui="enabled: false"
-
     embedded
   >
 
     <a-assets>
-
       <a-asset-item
         id="heartModel"
         src="./heart.glb">
       </a-asset-item>
-
     </a-assets>
 
     <a-camera
       id="camera"
-      camera-clipper="offset: 0.20"
+      camera-clipper="offset: 0"
       position="0 0 0"
       look-controls="enabled: false">
     </a-camera>
 
-    <a-entity
-      mindar-image-target="targetIndex: 0">
+    <a-entity mindar-image-target="targetIndex: 0">
 
       <a-gltf-model
         id="heart"
