@@ -32,13 +32,13 @@
       left: 50%;
       transform: translateX(-50%);
       display: flex;
-      gap: 10px;
+      gap: 8px;
     }
 
     button {
       border: none;
       border-radius: 12px;
-      padding: 12px 16px;
+      padding: 12px 14px;
       font-size: 15px;
       background: rgba(0,0,0,0.78);
       color: white;
@@ -55,13 +55,14 @@
       padding: 8px 12px;
       border-radius: 10px;
       font-size: 13px;
+      white-space: nowrap;
     }
   </style>
 
 
   <script>
 
-    AFRAME.registerComponent('phone-clipper', {
+    AFRAME.registerComponent('phone-slicer', {
 
       schema: {
         gain: {
@@ -78,21 +79,36 @@
 
         this.baselineDistance = null;
 
-        this.clipPlane = new THREE.Plane();
+        this.clipPlane =
+          new THREE.Plane();
 
-        this.localCenter = new THREE.Vector3();
-        this.worldCenter = new THREE.Vector3();
+        this.box =
+          new THREE.Box3();
 
-        this.cameraPosition = new THREE.Vector3();
-        this.viewDirection = new THREE.Vector3();
+        this.center =
+          new THREE.Vector3();
 
-        this.planePoint = new THREE.Vector3();
-        this.planeNormal = new THREE.Vector3();
+        this.size =
+          new THREE.Vector3();
+
+        this.cameraPosition =
+          new THREE.Vector3();
+
+        this.viewDirection =
+          new THREE.Vector3();
+
+        this.planePoint =
+          new THREE.Vector3();
+
+        this.planeNormal =
+          new THREE.Vector3();
 
         this.modelEl =
           document.querySelector('#heart');
 
-        const scene = this.el.sceneEl;
+
+        const scene =
+          this.el.sceneEl;
 
 
         scene.addEventListener(
@@ -116,36 +132,6 @@
             this.modelObject =
               this.modelEl.getObject3D('mesh');
 
-            this.modelObject.updateMatrixWorld(true);
-
-
-            /*
-              Find TRUE centre of geometry
-            */
-
-            const box =
-              new THREE.Box3()
-                .setFromObject(this.modelObject);
-
-            const centerWorld =
-              box.getCenter(
-                new THREE.Vector3()
-              );
-
-
-            /*
-              Store centre in model-local coordinates
-            */
-
-            this.localCenter =
-              this.modelObject.worldToLocal(
-                centerWorld.clone()
-              );
-
-
-            /*
-              Enable clipping capability
-            */
 
             this.modelObject.traverse(
               (node) => {
@@ -183,7 +169,7 @@
 
 
         /*
-          SLICE ON / OFF
+          SLICE ON/OFF
         */
 
         window.toggleSlice = () => {
@@ -194,24 +180,65 @@
           if (!this.enabled) {
 
             /*
-              When Slice turns ON:
-              use current phone position as zero point
+              Calculate the real current
+              model centre FIRST.
             */
 
-            this.updatePositions();
+            this.updateGeometry();
+
+
+            /*
+              Store starting distance
+              from camera to heart.
+            */
 
             this.baselineDistance =
               this.cameraPosition.distanceTo(
-                this.worldCenter
+                this.center
               );
 
+
+            /*
+              IMPORTANT:
+              initialise plane through
+              centre BEFORE enabling clipping.
+            */
+
+            this.viewDirection
+              .subVectors(
+                this.center,
+                this.cameraPosition
+              )
+              .normalize();
+
+
+            this.planePoint
+              .copy(this.center);
+
+
+            this.planeNormal
+              .copy(this.viewDirection)
+              .multiplyScalar(this.flip);
+
+
+            this.clipPlane
+              .setFromNormalAndCoplanarPoint(
+                this.planeNormal,
+                this.planePoint
+              );
+
+
             this.enabled = true;
+
+            this.updateMaterials();
 
           }
 
           else {
 
             this.enabled = false;
+
+            this.updateMaterials();
 
           }
 
@@ -223,15 +250,8 @@
               ? 'Slice ON'
               : 'Slice OFF';
 
-
-          this.updateMaterials();
-
         };
 
-
-        /*
-          Flip visible half
-        */
 
         window.flipSlice = () => {
 
@@ -240,40 +260,26 @@
         };
 
 
-        /*
-          Re-zero plane at current phone position
-        */
-
         window.resetSlice = () => {
 
           if (!this.enabled) return;
 
-          this.updatePositions();
+          this.updateGeometry();
 
           this.baselineDistance =
             this.cameraPosition.distanceTo(
-              this.worldCenter
+              this.center
             );
 
         };
 
 
-        /*
-          Increase sensitivity
-        */
-
         window.moreGain = () => {
 
           this.data.gain += 0.25;
 
-          this.updateStatus();
-
         };
 
-
-        /*
-          Decrease sensitivity
-        */
 
         window.lessGain = () => {
 
@@ -283,54 +289,60 @@
             this.data.gain = 0.25;
           }
 
-          this.updateStatus();
-
         };
 
       },
 
 
       /*
-        Get current model centre
-        and camera position
+        Recalculate actual model
+        bounding box every frame.
       */
 
-      updatePositions: function () {
+      updateGeometry: function () {
 
         this.modelObject.updateMatrixWorld(true);
 
-        this.worldCenter
-          .copy(this.localCenter);
 
-        this.modelObject
-          .localToWorld(this.worldCenter);
-
-
-        this.el.object3D
-          .getWorldPosition(
-            this.cameraPosition
+        this.box
+          .setFromObject(
+            this.modelObject
           );
+
+
+        this.box.getCenter(
+          this.center
+        );
+
+
+        this.box.getSize(
+          this.size
+        );
+
+
+        this.el.object3D.getWorldPosition(
+          this.cameraPosition
+        );
 
       },
 
 
-      /*
-        Attach/remove clipping plane
-      */
-
       updateMaterials: function () {
 
         if (!this.modelObject) return;
+
 
         this.modelObject.traverse(
           (node) => {
 
             if (!node.isMesh) return;
 
+
             const materials =
               Array.isArray(node.material)
                 ? node.material
                 : [node.material];
+
 
             materials.forEach(
               (material) => {
@@ -351,62 +363,48 @@
       },
 
 
-      updateStatus: function () {
-
-        document
-          .querySelector('#status')
-          .innerText =
-          'Slice sensitivity: ' +
-          this.data.gain.toFixed(2);
-
-      },
-
-
-      /*
-        Runs every frame
-      */
-
       tick: function () {
 
         if (
           !this.enabled ||
           !this.modelObject ||
           this.baselineDistance === null
-        ) return;
-
-
-        this.updatePositions();
+        ) {
+          return;
+        }
 
 
         /*
-          Current phone-to-heart distance
+          Current real model position
         */
+
+        this.updateGeometry();
+
 
         const currentDistance =
           this.cameraPosition.distanceTo(
-            this.worldCenter
+            this.center
           );
 
 
         /*
-          Direction:
-          phone → heart
+          Direction from camera to heart
         */
 
         this.viewDirection
           .subVectors(
-            this.worldCenter,
+            this.center,
             this.cameraPosition
           )
           .normalize();
 
 
         /*
-          How much has the phone moved
-          relative to starting position?
+          Phone movement relative
+          to position where Slice was enabled
         */
 
-        const movement =
+        let movement =
           (
             this.baselineDistance -
             currentDistance
@@ -415,35 +413,56 @@
 
 
         /*
-          Plane starts at heart centre.
-
-          Move phone closer:
-          plane moves through heart.
-
-          Move phone farther:
-          plane moves opposite direction.
+          Approximate radius of heart.
+          This prevents plane from flying
+          completely outside the model.
         */
 
-        this.planePoint
-          .copy(this.worldCenter)
-          .add(
-            this.viewDirection
-              .clone()
-              .multiplyScalar(
-                movement
-              )
+        const radius =
+          0.5 *
+          Math.sqrt(
+            this.size.x * this.size.x +
+            this.size.y * this.size.y +
+            this.size.z * this.size.z
           );
 
 
         /*
-          Plane orientation follows phone view
+          Clamp cutting plane inside model
+        */
+
+        const maxMovement =
+          radius * 0.90;
+
+
+        movement =
+          THREE.MathUtils.clamp(
+            movement,
+            -maxMovement,
+            maxMovement
+          );
+
+
+        /*
+          Heart centre + phone movement
+        */
+
+        this.planePoint
+          .copy(this.center)
+          .add(
+            this.viewDirection
+              .clone()
+              .multiplyScalar(movement)
+          );
+
+
+        /*
+          Plane orientation
         */
 
         this.planeNormal
           .copy(this.viewDirection)
-          .multiplyScalar(
-            this.flip
-          );
+          .multiplyScalar(this.flip);
 
 
         this.clipPlane
@@ -453,14 +472,10 @@
           );
 
 
-        /*
-          Debug information
-        */
-
         document
           .querySelector('#status')
           .innerText =
-          'Slice movement: ' +
+          'Move: ' +
           movement.toFixed(3) +
           ' | Gain: ' +
           this.data.gain.toFixed(2);
@@ -490,23 +505,19 @@
       Slice OFF
     </button>
 
-    <button
-      onclick="flipSlice()">
+    <button onclick="flipSlice()">
       Flip
     </button>
 
-    <button
-      onclick="resetSlice()">
+    <button onclick="resetSlice()">
       Reset
     </button>
 
-    <button
-      onclick="lessGain()">
+    <button onclick="lessGain()">
       −
     </button>
 
-    <button
-      onclick="moreGain()">
+    <button onclick="moreGain()">
       +
     </button>
 
@@ -549,15 +560,10 @@
 
 
     <a-camera
-
       id="camera"
-
-      phone-clipper="gain: 1.0"
-
+      phone-slicer="gain: 1.0"
       position="0 0 0"
-
       look-controls="enabled: false">
-
     </a-camera>
 
 
@@ -566,17 +572,11 @@
 
 
       <a-gltf-model
-
         id="heart"
-
         src="#heartModel"
-
         position="0 0 0.1"
-
         rotation="0 0 0"
-
         scale="0.015 0.015 0.015">
-
       </a-gltf-model>
 
 
